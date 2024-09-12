@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import plotly.express as px
+import matplotlib.pyplot as plt
 
 # Inicialização de dados (simulando um banco de dados)
 if 'groups' not in st.session_state:
@@ -88,8 +88,12 @@ if page == 'Dashboard':
     st.subheader('Taxa de Assiduidade')
     attendance_data = calculate_attendance_rate(group_id)
     if not attendance_data.empty:
-        fig = px.bar(attendance_data, x='name', y='rate', title='Taxa de Assiduidade por Aluno')
-        st.plotly_chart(fig)
+        fig, ax = plt.subplots()
+        ax.bar(attendance_data['name'], attendance_data['rate'])
+        ax.set_ylabel('Taxa de Assiduidade (%)')
+        ax.set_title('Taxa de Assiduidade por Aluno')
+        plt.xticks(rotation=45, ha='right')
+        st.pyplot(fig)
     else:
         st.write('Não há dados de presença para este grupo ainda.')
 
