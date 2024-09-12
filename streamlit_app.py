@@ -1,53 +1,51 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import matplotlib.pyplot as plt
+from datetime import datetime
+import os
 
-# Inicialização de dados (simulando um banco de dados)
-if 'groups' not in st.session_state:
-    st.session_state.groups = pd.DataFrame({
-        'id': [1, 2],
-        'name': ['Grupo 1', 'Grupo 2']
-    })
+# Funções para carregar e salvar dados
+def load_data(filename):
+    if os.path.exists(filename):
+        return pd.read_csv(filename)
+    return pd.DataFrame()
 
-if 'students' not in st.session_state:
-    st.session_state.students = pd.DataFrame({
-        'id': [1, 2],
-        'name': ['João', 'Maria'],
-        'group_id': [1, 2]
-    })
+def save_data(data, filename):
+    data.to_csv(filename, index=False)
 
-if 'attendance' not in st.session_state:
-    st.session_state.attendance = pd.DataFrame(columns=['id', 'student_id', 'date', 'present'])
+# Carregar dados
+groups = load_data('groups.csv')
+students = load_data('students.csv')
+attendance = load_data('attendance.csv')
 
 # Funções auxiliares
 def add_group(name):
-    new_id = st.session_state.groups['id'].max() + 1 if not st.session_state.groups.empty else 1
-    st.session_state.groups = pd.concat([
-        st.session_state.groups,
-        pd.DataFrame({'id': [new_id], 'name': [name]})
-    ], ignore_index=True)
+    global groups
+    new_id = groups['id'].max() + 1 if not groups.empty else 1
+    new_group = pd.DataFrame({'id': [new_id], 'name': [name]})
+    groups = pd.concat([groups, new_group], ignore_index=True)
+    save_data(groups, 'groups.csv')
 
 def add_student(name, group_id):
-    new_id = st.session_state.students['id'].max() + 1 if not st.session_state.students.empty else 1
-    st.session_state.students = pd.concat([
-        st.session_state.students,
-        pd.DataFrame({'id': [new_id], 'name': [name], 'group_id': [group_id]})
-    ], ignore_index=True)
+    global students
+    new_id = students['id'].max() + 1 if not students.empty else 1
+    new_student = pd.DataFrame({'id': [new_id], 'name': [name], 'group_id': [group_id]})
+    students = pd.concat([students, new_student], ignore_index=True)
+    save_data(students, 'students.csv')
 
 def mark_attendance(student_id, date, present):
-    new_id = st.session_state.attendance['id'].max() + 1 if not st.session_state.attendance.empty else 1
-    st.session_state.attendance = pd.concat([
-        st.session_state.attendance,
-        pd.DataFrame({'id': [new_id], 'student_id': [student_id], 'date': [date], 'present': [present]})
-    ], ignore_index=True)
+    global attendance
+    new_id = attendance['id'].max() + 1 if not attendance.empty else 1
+    new_attendance = pd.DataFrame({'id': [new_id], 'student_id': [student_id], 'date': [date], 'present': [present]})
+    attendance = pd.concat([attendance, new_attendance], ignore_index=True)
+    save_data(attendance, 'attendance.csv')
 
 def calculate_attendance_rate(group_id):
-    students_in_group = st.session_state.students[st.session_state.students['group_id'] == group_id]
+    students_in_group = students[students['group_id'] == group_id]
     attendance_rates = []
     
     for _, student in students_in_group.iterrows():
-        student_attendance = st.session_state.attendance[st.session_state.attendance['student_id'] == student['id']]
+        student_attendance = attendance[attendance['student_id'] == student['id']]
         total_classes = len(student_attendance)
         if total_classes > 0:
             present_classes = student_attendance['present'].sum()
@@ -57,6 +55,24 @@ def calculate_attendance_rate(group_id):
         attendance_rates.append({'name': student['name'], 'rate': rate})
     
     return pd.DataFrame(attendance_rates)
+
+def calculate_monthly_attendance_rate(group_id):
+    students_in_group = students[students['group_id'] == group_id]
+    group_attendance = attendance[attendance['student_id'].isin(students_in_group['id'])]
+    
+    if group_attendance.empty:
+        return pd.DataFrame(columns=['month', 'rate'])
+    
+    group_attendance['date'] = pd.to_datetime(group_attendance['date'])
+    monthly_attendance = group_attendance.groupby(group_attendance['date'].dt.to_period("M")).agg({
+        'present': 'mean',
+        'id': 'count'
+    }).reset_index()
+    
+    monthly_attendance['rate'] = monthly_attendance['present'] * 100
+    monthly_attendance['month'] = monthly_attendance['date'].dt.strftime('%Y-%m')
+    
+    return monthly_attendance[['month', 'rate']]
 
 # Interface da aplicação
 st.title('Sistema de Controle de Presença')
@@ -69,19 +85,22 @@ if page == 'Dashboard':
     
     # Seleção de grupo
     group_id = st.selectbox('Selecione o grupo', 
-                            options=st.session_state.groups['id'], 
-                            format_func=lambda x: st.session_state.groups[st.session_state.groups['id'] == x]['name'].iloc[0])
+                            options=groups['id'], 
+                            format_func=lambda x: groups[groups['id'] == x]['name'].iloc[0])
+    
+    # Data da aula
+    class_date = st.date_input('Data da aula', datetime.now())
     
     # Lista de presença
     st.subheader('Lista de Presença')
-    students_in_group = st.session_state.students[st.session_state.students['group_id'] == group_id]
+    students_in_group = students[students['group_id'] == group_id]
     for _, student in students_in_group.iterrows():
         col1, col2 = st.columns([3, 1])
         with col1:
             st.write(student['name'])
         with col2:
             if st.button('Presente', key=f'present_{student["id"]}'):
-                mark_attendance(student['id'], datetime.now().date(), True)
+                mark_attendance(student['id'], class_date, True)
                 st.success(f'Presença marcada para {student["name"]}')
     
     # Gráfico de taxa de assiduidade
@@ -96,6 +115,20 @@ if page == 'Dashboard':
         st.pyplot(fig)
     else:
         st.write('Não há dados de presença para este grupo ainda.')
+    
+    # Gráfico de evolução da assiduidade por mês
+    st.subheader('Evolução da Assiduidade por Mês')
+    monthly_attendance_data = calculate_monthly_attendance_rate(group_id)
+    if not monthly_attendance_data.empty:
+        fig, ax = plt.subplots()
+        ax.plot(monthly_attendance_data['month'], monthly_attendance_data['rate'], marker='o')
+        ax.set_xlabel('Mês')
+        ax.set_ylabel('Taxa de Assiduidade (%)')
+        ax.set_title('Evolução da Assiduidade do Grupo por Mês')
+        plt.xticks(rotation=45, ha='right')
+        st.pyplot(fig)
+    else:
+        st.write('Não há dados suficientes para mostrar a evolução da assiduidade.')
 
 elif page == 'Cadastro de Grupos':
     st.header('Cadastro de Grupos')
@@ -109,15 +142,15 @@ elif page == 'Cadastro de Grupos':
             st.error('Por favor, insira um nome para o grupo.')
     
     st.subheader('Grupos Cadastrados')
-    st.dataframe(st.session_state.groups)
+    st.dataframe(groups)
 
 elif page == 'Cadastro de Alunos':
     st.header('Cadastro de Alunos')
     
     new_student_name = st.text_input('Nome do novo aluno')
     new_student_group = st.selectbox('Grupo do aluno', 
-                                     options=st.session_state.groups['id'],
-                                     format_func=lambda x: st.session_state.groups[st.session_state.groups['id'] == x]['name'].iloc[0])
+                                     options=groups['id'],
+                                     format_func=lambda x: groups[groups['id'] == x]['name'].iloc[0])
     
     if st.button('Cadastrar Aluno'):
         if new_student_name and new_student_group:
@@ -127,4 +160,4 @@ elif page == 'Cadastro de Alunos':
             st.error('Por favor, preencha todos os campos.')
     
     st.subheader('Alunos Cadastrados')
-    st.dataframe(st.session_state.students.merge(st.session_state.groups, left_on='group_id', right_on='id', suffixes=('_student', '_group')))
+    st.dataframe(students.merge(groups, left_on='group_id', right_on='id', suffixes=('_student', '_group')))
